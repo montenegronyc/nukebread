@@ -154,6 +154,13 @@ def _register_default_handlers(bridge: BridgeServer) -> None:
     bridge.register_handler("get_viewer_state", lambda params: _get_viewer_state())
     bridge.register_handler("get_project_color_pipeline", lambda params: _get_color_pipeline())
 
+    # --- Execution & safety commands ---
+    bridge.register_handler("execute_python", lambda params: _execute_python(params["code"]))
+    bridge.register_handler("undo", lambda params: _undo(params.get("steps", 1)))
+    bridge.register_handler("begin_undo_group", lambda params: _begin_undo_group(params["name"]))
+    bridge.register_handler("end_undo_group", lambda params: _end_undo_group())
+    bridge.register_handler("save_script_backup", lambda params: _save_script_backup())
+
 
 # ---------------------------------------------------------------------------
 # Inline helpers for project-context and graph-read commands that don't
@@ -260,3 +267,51 @@ def _get_color_pipeline() -> dict:
         view=root["monitorOutLUT"].value() if root.knob("monitorOutLUT") else "",
         color_management=root["colorManagement"].value() if root.knob("colorManagement") else "Nuke",
     ).model_dump()
+
+
+def _execute_python(code: str) -> dict:
+    """Execute arbitrary Python in Nuke's interpreter and capture the result."""
+    import nuke
+    result_locals: dict = {}
+    try:
+        exec(code, {"nuke": nuke, "__builtins__": __builtins__}, result_locals)
+        # If the code assigned to `result`, return it
+        output = result_locals.get("result", None)
+        return {"status": "ok", "output": str(output) if output is not None else None}
+    except Exception as e:
+        return {"status": "error", "error": f"{type(e).__name__}: {e}"}
+
+
+def _undo(steps: int) -> str:
+    import nuke
+    for _ in range(steps):
+        nuke.undo()
+    return f"Undid {steps} step(s)"
+
+
+def _begin_undo_group(name: str) -> str:
+    import nuke
+    nuke.Undo.begin(name)
+    return f"Started undo group: {name}"
+
+
+def _end_undo_group() -> str:
+    import nuke
+    nuke.Undo.end()
+    return "Ended undo group"
+
+
+def _save_script_backup() -> str:
+    import nuke
+    import os
+    import time
+    script_path = nuke.scriptName()
+    if not script_path:
+        return "No script saved yet — nothing to back up"
+    base, ext = os.path.splitext(script_path)
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    backup_path = f"{base}_backup_{timestamp}{ext}"
+    nuke.scriptSaveAs(backup_path)
+    # Re-open the original so the user's session isn't redirected
+    nuke.scriptOpen(script_path)
+    return f"Backup saved to {backup_path}"

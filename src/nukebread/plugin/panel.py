@@ -64,7 +64,6 @@ class NukeBreadPanel(QtWidgets.QWidget):
             f'<span style="color:{color};font-weight:bold;">{sender}:</span> '
             f'<span style="color:#ddd;">{text}</span>'
         )
-        # Scroll to bottom
         scrollbar = self._chat.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
 
@@ -105,20 +104,18 @@ class NukeBreadPanel(QtWidgets.QWidget):
 
 
 def register_panel() -> None:
-    """Register NukeBread panel with Nuke's panel system.
+    """Register NukeBread as a dockable panel in Nuke's panel system.
 
-    Call this from menu.py after Nuke has finished loading.
+    Uses nukescripts.registerWidgetAsPanel so it appears in
+    Windows > Custom > NukeBread and can be docked into any pane.
     """
     try:
-        import nuke  # type: ignore[import-not-found]
+        import nukescripts  # type: ignore[import-not-found]
 
-        def _make_panel() -> NukeBreadPanel:
-            return NukeBreadPanel()
-
-        nuke.panels.register(  # type: ignore[attr-defined]
+        nukescripts.registerWidgetAsPanel(
+            "nukebread.plugin.panel.NukeBreadPanel",
             "NukeBread",
-            _make_panel,
+            "com.nukebread.panel",
         )
     except ImportError:
-        # Running outside Nuke — skip registration
         pass

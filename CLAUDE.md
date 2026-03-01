@@ -52,7 +52,7 @@ src/nukebread/
 
 ## Implementation Status
 - [x] Project scaffold and stubs
-- [ ] Phase 1: Common types, bridge protocol, serializer
-- [ ] Phase 2: MCP server with all tools wired through bridge
-- [ ] Phase 3: Vision tools (frame grabber, comparison)
-- [ ] Phase 4: Chat panel, templates, production features
+- [x] Phase 1: Common types, bridge protocol, serializer, node factory, frame grabber
+- [x] Phase 2: MCP server with all 31 tools wired through bridge
+- [ ] Phase 3: Vision refinements (ROI perf, comparison modes, temporal)
+- [ ] Phase 4: Chat panel backend, templates, production features

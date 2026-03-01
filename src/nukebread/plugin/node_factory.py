@@ -247,11 +247,27 @@ def set_animation_keys(
         value = kf["value"]
         knob.setValueAt(value, frame)
 
-        # TODO: implement interpolation type mapping
-        # interp = kf.get("interpolation", "smooth")
-        # Nuke's animation curve API uses nuke.SMOOTH, nuke.LINEAR,
-        # nuke.CONSTANT etc.  The knob.animation(0) curve object would
-        # need its keys iterated to set interpolation per-key.
+    # Set interpolation types on the animation curve keys
+    interp_map = {
+        "smooth": nuke.SMOOTH,
+        "linear": nuke.LINEAR,
+        "constant": nuke.CONSTANT,
+        "catmull-rom": nuke.CATMULL_ROM,
+    }
+    try:
+        curve = knob.animation(0)
+        if curve:
+            for key in curve.keys():
+                # Find the matching keyframe definition
+                for kf in keyframes:
+                    if key.x == kf["frame"]:
+                        interp_name = kf.get("interpolation", "smooth")
+                        interp_type = interp_map.get(interp_name, nuke.SMOOTH)
+                        key.interpolation = interp_type
+                        key.extrapolation = interp_type
+                        break
+    except Exception:
+        pass  # Older Nuke versions may not support this API
 
     return f"Set {len(keyframes)} keyframes on {node_name}.{knob_name}"
 

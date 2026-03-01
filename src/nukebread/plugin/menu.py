@@ -9,6 +9,10 @@ def register() -> None:
     Call from ~/.nuke/menu.py after Nuke has finished loading.
     """
     import nuke  # type: ignore[import-not-found]
+    from nukebread.plugin.panel import register_panel
+
+    # Register the panel widget so it appears in Windows > Custom
+    register_panel()
 
     menubar = nuke.menu("Nuke")
     nb_menu = menubar.addMenu("NukeBread")
@@ -19,19 +23,12 @@ def register() -> None:
 
 
 def _open_panel() -> None:
-    """Show the NukeBread chat panel."""
-    from nukebread.plugin.panel import NukeBreadPanel
-
+    """Show the NukeBread chat panel via nukescripts' panel system."""
     try:
-        import nuke  # type: ignore[import-not-found]
-
-        pane = nuke.getPaneFor("Properties.1")
-        panel = NukeBreadPanel()
-        panel.show()
-        if pane:
-            panel.addToPane(pane)
+        import nukescripts  # type: ignore[import-not-found]
+        nukescripts.panels.restorePanel("com.nukebread.panel")
     except Exception:
-        # Fallback: float as a standalone window
+        from nukebread.plugin.panel import NukeBreadPanel
         panel = NukeBreadPanel()
         panel.show()
 
