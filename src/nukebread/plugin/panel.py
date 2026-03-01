@@ -1,14 +1,17 @@
-"""PySide6 chat panel for NukeBread inside Nuke 17."""
+"""PySide6 status panel for NukeBread inside Nuke 17.
+
+Shows bridge connection status and logs tool calls made by Claude Code
+via the MCP server. The user drives the session from the Claude Code
+terminal — this panel is a read-only companion view.
+"""
 
 from __future__ import annotations
 
-from PySide6 import QtWidgets, QtCore, QtGui
+from PySide6 import QtWidgets, QtCore
 
 
 class NukeBreadPanel(QtWidgets.QWidget):
-    """Chat panel that lives inside Nuke's panel system."""
-
-    message_sent = QtCore.Signal(str)
+    """Status panel that lives inside Nuke's panel system."""
 
     def __init__(self, parent: QtWidgets.QWidget | None = None):
         super().__init__(parent)
@@ -21,7 +24,6 @@ class NukeBreadPanel(QtWidgets.QWidget):
         self._status_timer = QtCore.QTimer(self)
         self._status_timer.timeout.connect(self._check_bridge_status)
         self._status_timer.start(2000)
-        # Check immediately on creation
         self._check_bridge_status()
 
     # --- UI construction ---
@@ -38,44 +40,39 @@ class NukeBreadPanel(QtWidgets.QWidget):
         )
         layout.addWidget(self._status)
 
-        # Chat display
-        self._chat = QtWidgets.QTextEdit()
-        self._chat.setReadOnly(True)
-        self._chat.setStyleSheet(
-            "QTextEdit { background: #1a1a1a; color: #ddd; font-family: monospace; font-size: 12px; }"
+        # Hint label
+        hint = QtWidgets.QLabel("Chat with NukeBread in your Claude Code terminal.")
+        hint.setStyleSheet("color: #777; font-size: 11px; padding: 2px 4px;")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        # Activity log
+        self._log = QtWidgets.QTextEdit()
+        self._log.setReadOnly(True)
+        self._log.setStyleSheet(
+            "QTextEdit { background: #1a1a1a; color: #ddd; "
+            "font-family: monospace; font-size: 12px; }"
         )
-        layout.addWidget(self._chat, stretch=1)
+        layout.addWidget(self._log, stretch=1)
 
-        # Input area
-        input_row = QtWidgets.QHBoxLayout()
-        input_row.setSpacing(4)
-
-        self._input = QtWidgets.QLineEdit()
-        self._input.setPlaceholderText("Ask NukeBread...")
-        self._input.returnPressed.connect(self.on_send)
-        input_row.addWidget(self._input, stretch=1)
-
-        self._send_btn = QtWidgets.QPushButton("Send")
-        self._send_btn.setFixedWidth(60)
-        self._send_btn.clicked.connect(self.on_send)
-        input_row.addWidget(self._send_btn)
-
-        layout.addLayout(input_row)
+        # Clear button
+        btn_row = QtWidgets.QHBoxLayout()
+        btn_row.addStretch()
+        self._clear_btn = QtWidgets.QPushButton("Clear Log")
+        self._clear_btn.setFixedWidth(80)
+        self._clear_btn.clicked.connect(self._log.clear)
+        btn_row.addWidget(self._clear_btn)
+        layout.addLayout(btn_row)
 
     # --- Public API ---
 
-    def add_message(self, sender: str, text: str) -> None:
-        """Append a message to the chat display."""
-        color = "#7ec8e3" if sender.lower() == "nukebread" else "#e0e0e0"
-        self._chat.append(
-            f'<span style="color:{color};font-weight:bold;">{sender}:</span> '
-            f'<span style="color:#ddd;">{text}</span>'
-        )
-        scrollbar = self._chat.verticalScrollBar()
+    def log(self, text: str, color: str = "#ddd") -> None:
+        """Append a line to the activity log."""
+        self._log.append(f'<span style="color:{color};">{text}</span>')
+        scrollbar = self._log.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
 
     def set_status(self, connected: bool) -> None:
-        """Update the bridge connection indicator."""
         if connected:
             self._status.setText("Bridge: connected")
             self._status.setStyleSheet(
@@ -90,33 +87,13 @@ class NukeBreadPanel(QtWidgets.QWidget):
     # --- Slots ---
 
     @QtCore.Slot()
-    def on_send(self) -> None:
-        """Handle send button / return key."""
-        text = self._input.text().strip()
-        if not text:
-            return
-        self._input.clear()
-        self.add_message("You", text)
-        self.message_sent.emit(text)
-        self.add_message(
-            "NukeBread",
-            "Chat runs through Claude Code, not this panel. "
-            "Use your terminal to talk to me.",
-        )
-
-    @QtCore.Slot()
     def _check_bridge_status(self) -> None:
-        """Poll whether the bridge server is running."""
         import nukebread.plugin as plugin
         self.set_status(plugin._bridge is not None)
 
 
 def register_panel() -> None:
-    """Register NukeBread as a dockable panel in Nuke's panel system.
-
-    Uses nukescripts.registerWidgetAsPanel so it appears in
-    Windows > Custom > NukeBread and can be docked into any pane.
-    """
+    """Register NukeBread as a dockable panel in Nuke's panel system."""
     try:
         import nukescripts  # type: ignore[import-not-found]
 

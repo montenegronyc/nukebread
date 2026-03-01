@@ -6,41 +6,29 @@ server that the MCP server connects to over TCP.
 
 from __future__ import annotations
 
-import threading
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from nukebread.plugin.bridge import BridgeServer
 
 _bridge: BridgeServer | None = None
+_registry = None  # populated by get_registry()
 
 
 def start() -> None:
-    """Initialize and start the NukeBread bridge server.
-
-    Intended to be called once from Nuke's menu.py, e.g.::
-
-        import nukebread.plugin
-        nukebread.plugin.start()
-
-    The bridge server runs in a daemon thread so it does not prevent
-    Nuke from exiting.  All registered command handlers dispatch their
-    Nuke API calls back to the main thread via ``nuke.executeInMainThread``.
-    """
+    """Initialize and start the NukeBread bridge server."""
     global _bridge
 
     if _bridge is not None:
-        # Already running — avoid double-start.
         import nuke
         nuke.message("NukeBread bridge is already running.")
         return
 
     from nukebread.common.constants import BRIDGE_HOST, BRIDGE_PORT
     from nukebread.plugin.bridge import BridgeServer
-    from nukebread.plugin import _register_default_handlers
 
-    _bridge = BridgeServer(host=BRIDGE_HOST, port=BRIDGE_PORT)
-    _register_default_handlers(_bridge)
+    registry = get_registry()
+    _bridge = BridgeServer(host=BRIDGE_HOST, port=BRIDGE_PORT, registry=registry)
     _bridge.start()
 
     import nuke
@@ -57,31 +45,49 @@ def stop() -> None:
         nuke.tprint("[NukeBread] Bridge server stopped.")
 
 
-def _register_default_handlers(bridge: BridgeServer) -> None:
-    """Wire up all built-in command handlers."""
+def get_registry():
+    """Return the shared ToolRegistry, building it on first access."""
+    global _registry
+    if _registry is None:
+        _registry = _build_registry()
+    return _registry
+
+
+def _build_registry():
+    """Create and populate a ToolRegistry with all command handlers."""
+    from nukebread.plugin.tool_registry import ToolRegistry, TOOL_SCHEMAS
     from nukebread.plugin import serializer, node_factory, frame_grabber
 
+    reg = ToolRegistry()
+
     # --- Graph read commands ---
-    bridge.register_handler("read_full_graph", lambda params: serializer.serialize_graph(
+    reg.register("read_full_graph", lambda params: serializer.serialize_graph(
         include_viewers=params.get("include_viewers", False),
-    ).to_dict())
+    ).to_dict(), TOOL_SCHEMAS.get("read_full_graph"))
 
-    bridge.register_handler("read_selected_nodes", lambda params: serializer.serialize_selected().to_dict())
+    reg.register("read_selected_nodes",
+                 lambda params: serializer.serialize_selected().to_dict(),
+                 TOOL_SCHEMAS.get("read_selected_nodes"))
 
-    bridge.register_handler("read_node_detail", lambda params: _node_detail(params["node_name"]))
+    reg.register("read_node_detail",
+                 lambda params: _node_detail(params["node_name"]),
+                 TOOL_SCHEMAS.get("read_node_detail"))
 
-    bridge.register_handler("trace_pipe", lambda params: [
+    reg.register("trace_pipe", lambda params: [
         n.to_dict() for n in serializer.trace_pipe(
             params["node_name"], params.get("direction", "upstream"),
         )
-    ])
+    ], TOOL_SCHEMAS.get("trace_pipe"))
 
-    bridge.register_handler("find_nodes_by_class", lambda params: _find_by_class(params["class_name"]))
+    reg.register("find_nodes_by_class",
+                 lambda params: _find_by_class(params["class_name"]),
+                 TOOL_SCHEMAS.get("find_nodes_by_class"))
 
-    bridge.register_handler("get_errors", lambda params: _get_errors())
+    reg.register("get_errors", lambda params: _get_errors(),
+                 TOOL_SCHEMAS.get("get_errors"))
 
     # --- Graph write commands ---
-    bridge.register_handler("create_node", lambda params: node_factory.create_node(
+    reg.register("create_node", lambda params: node_factory.create_node(
         class_name=params["class_name"],
         name=params.get("name"),
         knobs=params.get("knobs"),
@@ -89,82 +95,93 @@ def _register_default_handlers(bridge: BridgeServer) -> None:
         insert_after=params.get("insert_after"),
         x=params.get("x"),
         y=params.get("y"),
-    ))
+    ), TOOL_SCHEMAS.get("create_node"))
 
-    bridge.register_handler("create_node_tree", lambda params: node_factory.create_node_tree(params["tree"]))
+    reg.register("create_node_tree",
+                 lambda params: node_factory.create_node_tree(params["tree"]))
 
-    bridge.register_handler("connect_nodes", lambda params: node_factory.connect(
+    reg.register("connect_nodes", lambda params: node_factory.connect(
         params["from_node"], params["to_node"], params.get("input_index", 0),
-    ))
+    ), TOOL_SCHEMAS.get("connect_nodes"))
 
-    bridge.register_handler("disconnect_node", lambda params: node_factory.disconnect(
+    reg.register("disconnect_node", lambda params: node_factory.disconnect(
         params["node_name"], params.get("input_index"),
     ))
 
-    bridge.register_handler("delete_nodes", lambda params: node_factory.delete_nodes(params["node_names"]))
+    reg.register("delete_nodes",
+                 lambda params: node_factory.delete_nodes(params["node_names"]),
+                 TOOL_SCHEMAS.get("delete_nodes"))
 
-    bridge.register_handler("set_knob", lambda params: node_factory.set_knob_value(
+    reg.register("set_knob", lambda params: node_factory.set_knob_value(
         params["node_name"], params["knob_name"], params["value"],
-    ))
+    ), TOOL_SCHEMAS.get("set_knob"))
 
-    bridge.register_handler("set_expression", lambda params: node_factory.set_knob_expression(
+    reg.register("set_expression", lambda params: node_factory.set_knob_expression(
         params["node_name"], params["knob_name"], params["expression"],
-    ))
+    ), TOOL_SCHEMAS.get("set_expression"))
 
-    bridge.register_handler("set_animation", lambda params: node_factory.set_animation_keys(
+    reg.register("set_animation", lambda params: node_factory.set_animation_keys(
         params["node_name"], params["knob_name"], params["keyframes"],
     ))
 
-    bridge.register_handler("duplicate_branch", lambda params: node_factory.duplicate_branch(params["node_name"]))
+    reg.register("duplicate_branch",
+                 lambda params: node_factory.duplicate_branch(params["node_name"]))
 
-    bridge.register_handler("replace_node", lambda params: node_factory.replace_node(
+    reg.register("replace_node", lambda params: node_factory.replace_node(
         params["old_node"], params["new_class"], params.get("preserve_connections", True),
     ))
 
     # --- Vision commands ---
-    bridge.register_handler("grab_frame", lambda params: frame_grabber.grab_frame(
+    reg.register("grab_frame", lambda params: frame_grabber.grab_frame(
         node_name=params.get("node_name"),
         frame=params.get("frame"),
-    ).to_dict())
+    ).to_dict(), TOOL_SCHEMAS.get("grab_frame"))
 
-    bridge.register_handler("grab_roi", lambda params: frame_grabber.grab_roi(
+    reg.register("grab_roi", lambda params: frame_grabber.grab_roi(
         params["node_name"], params["x"], params["y"],
         params["width"], params["height"], params.get("frame"),
     ).to_dict())
 
-    bridge.register_handler("grab_comparison", lambda params: frame_grabber.grab_comparison(
+    reg.register("grab_comparison", lambda params: frame_grabber.grab_comparison(
         params["node_a"], params["node_b"],
         frame=params.get("frame"), mode=params.get("mode", "wipe"),
     ).to_dict())
 
-    bridge.register_handler("grab_frame_range", lambda params: [
+    reg.register("grab_frame_range", lambda params: [
         r.to_dict() for r in frame_grabber.grab_frame_range(
             params["node_name"], params["start"], params["end"], params.get("step", 1),
         )
     ])
 
-    bridge.register_handler("read_pixel", lambda params: frame_grabber.read_pixel(
+    reg.register("read_pixel", lambda params: frame_grabber.read_pixel(
         params["node_name"], params["x"], params["y"], params.get("frame"),
-    ).to_dict())
+    ).to_dict(), TOOL_SCHEMAS.get("read_pixel"))
 
     # --- Project context commands ---
-    bridge.register_handler("get_script_info", lambda params: _get_script_info())
-    bridge.register_handler("get_layer_channels", lambda params: _get_layer_channels(params["node_name"]))
-    bridge.register_handler("list_read_nodes", lambda params: _list_read_nodes())
-    bridge.register_handler("get_viewer_state", lambda params: _get_viewer_state())
-    bridge.register_handler("get_project_color_pipeline", lambda params: _get_color_pipeline())
+    reg.register("get_script_info", lambda params: _get_script_info(),
+                 TOOL_SCHEMAS.get("get_script_info"))
+    reg.register("get_layer_channels",
+                 lambda params: _get_layer_channels(params["node_name"]))
+    reg.register("list_read_nodes", lambda params: _list_read_nodes(),
+                 TOOL_SCHEMAS.get("list_read_nodes"))
+    reg.register("get_viewer_state", lambda params: _get_viewer_state())
+    reg.register("get_project_color_pipeline", lambda params: _get_color_pipeline())
 
     # --- Execution & safety commands ---
-    bridge.register_handler("execute_python", lambda params: _execute_python(params["code"]))
-    bridge.register_handler("undo", lambda params: _undo(params.get("steps", 1)))
-    bridge.register_handler("begin_undo_group", lambda params: _begin_undo_group(params["name"]))
-    bridge.register_handler("end_undo_group", lambda params: _end_undo_group())
-    bridge.register_handler("save_script_backup", lambda params: _save_script_backup())
+    reg.register("execute_python",
+                 lambda params: _execute_python(params["code"]),
+                 TOOL_SCHEMAS.get("execute_python"))
+    reg.register("undo", lambda params: _undo(params.get("steps", 1)))
+    reg.register("begin_undo_group",
+                 lambda params: _begin_undo_group(params["name"]))
+    reg.register("end_undo_group", lambda params: _end_undo_group())
+    reg.register("save_script_backup", lambda params: _save_script_backup())
+
+    return reg
 
 
 # ---------------------------------------------------------------------------
-# Inline helpers for project-context and graph-read commands that don't
-# warrant their own module.
+# Inline helpers
 # ---------------------------------------------------------------------------
 
 def _node_detail(node_name: str) -> dict:
@@ -270,12 +287,10 @@ def _get_color_pipeline() -> dict:
 
 
 def _execute_python(code: str) -> dict:
-    """Execute arbitrary Python in Nuke's interpreter and capture the result."""
     import nuke
     result_locals: dict = {}
     try:
         exec(code, {"nuke": nuke, "__builtins__": __builtins__}, result_locals)
-        # If the code assigned to `result`, return it
         output = result_locals.get("result", None)
         return {"status": "ok", "output": str(output) if output is not None else None}
     except Exception as e:
@@ -312,6 +327,5 @@ def _save_script_backup() -> str:
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     backup_path = f"{base}_backup_{timestamp}{ext}"
     nuke.scriptSaveAs(backup_path)
-    # Re-open the original so the user's session isn't redirected
     nuke.scriptOpen(script_path)
     return f"Backup saved to {backup_path}"
