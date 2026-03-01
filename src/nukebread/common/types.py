@@ -1,60 +1,87 @@
-"""Pydantic models shared between MCP server and Nuke plugin."""
+"""Data types shared between MCP server and Nuke plugin.
+
+Uses stdlib dataclasses instead of pydantic so the plugin can run
+inside Nuke's embedded Python without extra dependencies.
+"""
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field, asdict
 from enum import Enum
-from pydantic import BaseModel, Field
+from typing import Any
+
+
+def _to_dict(obj) -> dict:
+    """Convert a dataclass to a plain dict, recursively."""
+    return asdict(obj)
 
 
 # --- Graph Structure ---
 
 
-class KnobValue(BaseModel):
+@dataclass
+class KnobValue:
     """A single knob's name, type, and current value."""
 
     name: str
-    type: str  # e.g. "Double_Knob", "Color_Knob", "Enumeration_Knob"
-    value: object  # actual value — float, list, str, bool, etc.
+    type: str
+    value: Any
     expression: str | None = None
     animated: bool = False
 
+    def to_dict(self) -> dict:
+        return _to_dict(self)
 
-class NodeConnection(BaseModel):
+
+@dataclass
+class NodeConnection:
     """A connection between two nodes."""
 
     input_index: int
     source_node: str
 
+    def to_dict(self) -> dict:
+        return _to_dict(self)
 
-class NodeInfo(BaseModel):
+
+@dataclass
+class NodeInfo:
     """Serialized representation of a single Nuke node."""
 
     name: str
-    class_name: str  # e.g. "Grade", "Merge2", "Read"
+    class_name: str
     x: int = 0
     y: int = 0
-    inputs: list[NodeConnection] = Field(default_factory=list)
-    knobs: list[KnobValue] = Field(default_factory=list)
+    inputs: list[NodeConnection] = field(default_factory=list)
+    knobs: list[KnobValue] = field(default_factory=list)
     selected: bool = False
     has_error: bool = False
     error_message: str | None = None
     label: str = ""
     tile_color: int | None = None
 
+    def to_dict(self) -> dict:
+        return _to_dict(self)
 
-class GraphData(BaseModel):
+
+@dataclass
+class GraphData:
     """Complete node graph as structured data."""
 
-    nodes: list[NodeInfo] = Field(default_factory=list)
+    nodes: list[NodeInfo] = field(default_factory=list)
     script_name: str = ""
     frame_range: tuple[int, int] = (1, 100)
     current_frame: int = 1
+
+    def to_dict(self) -> dict:
+        return _to_dict(self)
 
 
 # --- Script / Project Info ---
 
 
-class ScriptInfo(BaseModel):
+@dataclass
+class ScriptInfo:
     """Basic script metadata."""
 
     name: str = ""
@@ -67,8 +94,12 @@ class ScriptInfo(BaseModel):
     format_height: int = 1080
     proxy_mode: bool = False
 
+    def to_dict(self) -> dict:
+        return _to_dict(self)
 
-class ReadNodeInfo(BaseModel):
+
+@dataclass
+class ReadNodeInfo:
     """Info about a Read node and its source footage."""
 
     node_name: str
@@ -77,20 +108,28 @@ class ReadNodeInfo(BaseModel):
     last_frame: int = 100
     colorspace: str = ""
     format_name: str = ""
-    channels: list[str] = Field(default_factory=list)
+    channels: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return _to_dict(self)
 
 
-class ColorPipeline(BaseModel):
+@dataclass
+class ColorPipeline:
     """OCIO / color management state."""
 
     ocio_config: str = ""
     working_space: str = ""
     display: str = ""
     view: str = ""
-    color_management: str = ""  # "Nuke" or "OCIO"
+    color_management: str = ""
+
+    def to_dict(self) -> dict:
+        return _to_dict(self)
 
 
-class ViewerState(BaseModel):
+@dataclass
+class ViewerState:
     """Current viewer configuration."""
 
     viewer_node: str = ""
@@ -101,38 +140,44 @@ class ViewerState(BaseModel):
     gamma: float = 1.0
     frame: int = 1
 
+    def to_dict(self) -> dict:
+        return _to_dict(self)
+
 
 # --- Tool Parameters ---
 
 
-class CreateNodeParams(BaseModel):
+@dataclass
+class CreateNodeParams:
     """Parameters for creating a single node."""
 
     class_name: str
     name: str | None = None
-    knobs: dict[str, object] = Field(default_factory=dict)
+    knobs: dict[str, Any] = field(default_factory=dict)
     connect_to: str | None = None
     insert_after: str | None = None
     x: int | None = None
     y: int | None = None
 
 
-class NodeTreeEntry(BaseModel):
+@dataclass
+class NodeTreeEntry:
     """One entry in a batch node tree definition."""
 
     class_name: str
     name: str
-    knobs: dict[str, object] = Field(default_factory=dict)
-    connect_from: str | None = None  # name of upstream node in this tree
+    knobs: dict[str, Any] = field(default_factory=dict)
+    connect_from: str | None = None
     input_index: int = 0
 
 
-class KeyframeData(BaseModel):
+@dataclass
+class KeyframeData:
     """A single keyframe."""
 
     frame: int
     value: float
-    interpolation: str = "smooth"  # smooth, linear, constant
+    interpolation: str = "smooth"
 
 
 class ComparisonMode(str, Enum):
@@ -149,7 +194,8 @@ class TraceDirection(str, Enum):
 # --- Vision Results ---
 
 
-class FrameGrabResult(BaseModel):
+@dataclass
+class FrameGrabResult:
     """Result of a frame grab — base64-encoded image."""
 
     image_base64: str
@@ -159,12 +205,19 @@ class FrameGrabResult(BaseModel):
     node_name: str
     channels: str = "rgba"
 
+    def to_dict(self) -> dict:
+        return _to_dict(self)
 
-class PixelSample(BaseModel):
+
+@dataclass
+class PixelSample:
     """Pixel value at a specific coordinate."""
 
     x: int
     y: int
     frame: int
     node_name: str
-    values: dict[str, float] = Field(default_factory=dict)  # channel_name → value
+    values: dict[str, float] = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        return _to_dict(self)

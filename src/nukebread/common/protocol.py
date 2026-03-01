@@ -3,13 +3,15 @@
 Messages are newline-delimited JSON over TCP socket.
 Each message has a type, an optional id (for request/response pairing),
 and a payload.
+
+Uses stdlib only — no pydantic, so it works inside Nuke's embedded Python.
 """
 
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, field, asdict
 from enum import Enum
-from pydantic import BaseModel, Field
 
 
 class MessageType(str, Enum):
@@ -20,22 +22,30 @@ class MessageType(str, Enum):
     PONG = "pong"
 
 
-class BridgeMessage(BaseModel):
+@dataclass
+class BridgeMessage:
     """Wire format for bridge communication."""
 
     type: MessageType
     id: str = ""
     command: str = ""
-    params: dict = Field(default_factory=dict)
+    params: dict = field(default_factory=dict)
     result: object = None
     error: str | None = None
 
+    def to_dict(self) -> dict:
+        d = asdict(self)
+        d["type"] = self.type.value
+        return d
+
     def to_bytes(self) -> bytes:
-        return self.model_dump_json().encode("utf-8") + b"\n"
+        return json.dumps(self.to_dict()).encode("utf-8") + b"\n"
 
     @classmethod
     def from_bytes(cls, data: bytes) -> BridgeMessage:
-        return cls.model_validate_json(data.strip())
+        d = json.loads(data.strip())
+        d["type"] = MessageType(d["type"])
+        return cls(**d)
 
 
 def encode_message(msg: BridgeMessage) -> bytes:

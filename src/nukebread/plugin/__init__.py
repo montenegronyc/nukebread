@@ -64,14 +64,14 @@ def _register_default_handlers(bridge: BridgeServer) -> None:
     # --- Graph read commands ---
     bridge.register_handler("read_full_graph", lambda params: serializer.serialize_graph(
         include_viewers=params.get("include_viewers", False),
-    ).model_dump())
+    ).to_dict())
 
-    bridge.register_handler("read_selected_nodes", lambda params: serializer.serialize_selected().model_dump())
+    bridge.register_handler("read_selected_nodes", lambda params: serializer.serialize_selected().to_dict())
 
     bridge.register_handler("read_node_detail", lambda params: _node_detail(params["node_name"]))
 
     bridge.register_handler("trace_pipe", lambda params: [
-        n.model_dump() for n in serializer.trace_pipe(
+        n.to_dict() for n in serializer.trace_pipe(
             params["node_name"], params.get("direction", "upstream"),
         )
     ])
@@ -125,27 +125,27 @@ def _register_default_handlers(bridge: BridgeServer) -> None:
     bridge.register_handler("grab_frame", lambda params: frame_grabber.grab_frame(
         node_name=params.get("node_name"),
         frame=params.get("frame"),
-    ).model_dump())
+    ).to_dict())
 
     bridge.register_handler("grab_roi", lambda params: frame_grabber.grab_roi(
         params["node_name"], params["x"], params["y"],
         params["width"], params["height"], params.get("frame"),
-    ).model_dump())
+    ).to_dict())
 
     bridge.register_handler("grab_comparison", lambda params: frame_grabber.grab_comparison(
         params["node_a"], params["node_b"],
         frame=params.get("frame"), mode=params.get("mode", "wipe"),
-    ).model_dump())
+    ).to_dict())
 
     bridge.register_handler("grab_frame_range", lambda params: [
-        r.model_dump() for r in frame_grabber.grab_frame_range(
+        r.to_dict() for r in frame_grabber.grab_frame_range(
             params["node_name"], params["start"], params["end"], params.get("step", 1),
         )
     ])
 
     bridge.register_handler("read_pixel", lambda params: frame_grabber.read_pixel(
         params["node_name"], params["x"], params["y"], params.get("frame"),
-    ).model_dump())
+    ).to_dict())
 
     # --- Project context commands ---
     bridge.register_handler("get_script_info", lambda params: _get_script_info())
@@ -173,14 +173,14 @@ def _node_detail(node_name: str) -> dict:
     if node is None:
         raise ValueError(f"Node '{node_name}' not found")
     from nukebread.plugin.serializer import serialize_node
-    return serialize_node(node, all_knobs=True).model_dump()
+    return serialize_node(node, all_knobs=True).to_dict()
 
 
 def _find_by_class(class_name: str) -> list[dict]:
     import nuke
     from nukebread.plugin.serializer import serialize_node
     return [
-        serialize_node(n).model_dump()
+        serialize_node(n).to_dict()
         for n in nuke.allNodes(class_name)
     ]
 
@@ -191,7 +191,7 @@ def _get_errors() -> list[dict]:
     results = []
     for node in nuke.allNodes():
         if node.hasError():
-            results.append(serialize_node(node).model_dump())
+            results.append(serialize_node(node).to_dict())
     return results
 
 
@@ -209,7 +209,7 @@ def _get_script_info() -> dict:
         format_width=root.format().width(),
         format_height=root.format().height(),
         proxy_mode=root["proxy"].value(),
-    ).model_dump()
+    ).to_dict()
 
 
 def _get_layer_channels(node_name: str) -> list[str]:
@@ -233,7 +233,7 @@ def _list_read_nodes() -> list[dict]:
             colorspace=node["colorspace"].value(),
             format_name=node.format().name() if node.format() else "",
             channels=sorted(node.channels()),
-        ).model_dump())
+        ).to_dict())
     return results
 
 
@@ -242,7 +242,7 @@ def _get_viewer_state() -> dict:
     from nukebread.common.types import ViewerState
     viewers = nuke.allNodes("Viewer")
     if not viewers:
-        return ViewerState().model_dump()
+        return ViewerState().to_dict()
     v = viewers[0]
     input_node = v.input(0)
     return ViewerState(
@@ -253,7 +253,7 @@ def _get_viewer_state() -> dict:
         gain=v["gain"].value() if v.knob("gain") else 1.0,
         gamma=v["gamma"].value() if v.knob("gamma") else 1.0,
         frame=nuke.frame(),
-    ).model_dump()
+    ).to_dict()
 
 
 def _get_color_pipeline() -> dict:
@@ -266,7 +266,7 @@ def _get_color_pipeline() -> dict:
         display=root["monitorLut"].value() if root.knob("monitorLut") else "",
         view=root["monitorOutLUT"].value() if root.knob("monitorOutLUT") else "",
         color_management=root["colorManagement"].value() if root.knob("colorManagement") else "Nuke",
-    ).model_dump()
+    ).to_dict()
 
 
 def _execute_python(code: str) -> dict:
