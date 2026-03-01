@@ -17,6 +17,13 @@ class NukeBreadPanel(QtWidgets.QWidget):
         self.setMinimumHeight(400)
         self._build_ui()
 
+        # Poll bridge status every 2 seconds
+        self._status_timer = QtCore.QTimer(self)
+        self._status_timer.timeout.connect(self._check_bridge_status)
+        self._status_timer.start(2000)
+        # Check immediately on creation
+        self._check_bridge_status()
+
     # --- UI construction ---
 
     def _build_ui(self) -> None:
@@ -25,7 +32,7 @@ class NukeBreadPanel(QtWidgets.QWidget):
         layout.setSpacing(4)
 
         # Status bar
-        self._status = QtWidgets.QLabel("Bridge: disconnected")
+        self._status = QtWidgets.QLabel("Bridge: checking...")
         self._status.setStyleSheet(
             "color: #aaa; font-size: 11px; padding: 2px 4px;"
         )
@@ -91,16 +98,17 @@ class NukeBreadPanel(QtWidgets.QWidget):
         self._input.clear()
         self.add_message("You", text)
         self.message_sent.emit(text)
-        # TODO Phase 1: direct Claude API call
-        # TODO Phase 2: route through MCP bridge
-        self._handle_stub_response(text)
-
-    def _handle_stub_response(self, user_text: str) -> None:
-        """Placeholder until the bridge/API is wired up."""
         self.add_message(
             "NukeBread",
-            "[stub] Bridge not connected yet. Message received.",
+            "Chat runs through Claude Code, not this panel. "
+            "Use your terminal to talk to me.",
         )
+
+    @QtCore.Slot()
+    def _check_bridge_status(self) -> None:
+        """Poll whether the bridge server is running."""
+        import nukebread.plugin as plugin
+        self.set_status(plugin._bridge is not None)
 
 
 def register_panel() -> None:
