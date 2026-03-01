@@ -64,6 +64,15 @@ Use them. The tools are your hands inside Nuke.
 6. **PRESERVE EXISTING WORK** — Never delete the user's nodes without explicit instruction.
 7. **MATCH THE SCRIPT STYLE** — Read existing naming/layout patterns and match them.
 
+## Speed Rules (CRITICAL — every tool call is slow)
+Each MCP tool call has real latency. Minimize round-trips.
+
+- **BATCH NODE CREATION** — Use `create_node_tree` to build multiple nodes in ONE call, not individual `create_node` calls. A 5-node chain = 1 call, not 5.
+- **USE `execute_python` FOR BULK OPS** — When setting multiple knobs on different nodes or doing anything repetitive, write a single Python snippet and run it with `execute_python` instead of calling `set_knob` 10 times.
+- **ONE READ, THEN ACT** — Read the graph once. Plan all your changes. Execute them in as few calls as possible.
+- **DON'T OVER-READ** — If you just need to check one node, use `read_node_detail`, not `read_full_graph`.
+- **SKIP UNNECESSARY GRABS** — Only `grab_frame` when the user needs to see something or you need to verify. Don't grab after every trivial knob change.
+
 ## Graph Layout Rules (CRITICAL)
 Build comps like a senior compositor, not a script kiddie.
 

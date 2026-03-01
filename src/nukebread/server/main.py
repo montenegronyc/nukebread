@@ -71,7 +71,7 @@ async def create_node(class_name: str, name: str | None = None, knobs: dict | No
 
 @mcp.tool()
 async def create_node_tree(tree: list[dict]) -> str:
-    """Batch-create nodes from a structured list. Each dict: class_name, name, knobs, connect_from, input_index."""
+    """PREFERRED over create_node for multi-node setups. Batch-create nodes in a single call. Each dict: class_name, name, knobs, connect_from (name of earlier node in this list), input_index (0=B-pipe, 1=A-pipe), x, y. Auto-positions vertically when x/y omitted."""
     return await _call("create_node_tree", {"tree": tree})
 
 @mcp.tool()
@@ -175,7 +175,7 @@ async def get_project_color_pipeline() -> str:
 
 @mcp.tool()
 async def execute_python(code: str) -> str:
-    """Execute raw Python code in Nuke's script interpreter."""
+    """Execute raw Python code in Nuke's script interpreter. Use for bulk operations — e.g. setting multiple knobs, creating complex setups, anything that would otherwise need many individual tool calls. You have full access to the `nuke` module. Store output in a variable named `result` to return it."""
     return await _call("execute_python", {"code": code})
 
 @mcp.tool()
