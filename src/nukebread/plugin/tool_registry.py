@@ -62,7 +62,7 @@ class ToolRegistry:
             except Exception:
                 result_box["error"] = traceback.format_exc()
 
-        nuke.executeInMainThread(_run_on_main)
+        nuke.executeInMainThreadWithResult(_run_on_main)
 
         if "error" in result_box:
             raise RuntimeError(result_box["error"])

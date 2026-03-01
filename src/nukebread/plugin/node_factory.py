@@ -11,6 +11,11 @@ from typing import Any
 
 import nuke
 
+# Vertical spacing between nodes in the same chain.
+_V_SPACING = 50
+# Horizontal offset for side-branch inputs (A-pipe, masks).
+_H_OFFSET = 200
+
 
 # ------------------------------------------------------------------
 # Node creation
@@ -44,7 +49,9 @@ def create_node(
         inherits the target's downstream connections and connects its
         input 0 to the target.
     x, y:
-        Position on the node graph.
+        Position on the node graph.  If omitted but *connect_to* or
+        *insert_after* is given, the node is auto-positioned directly
+        below the reference node to maintain a clean vertical B-pipe.
     """
     # Deselect everything first so nuke.createNode doesn't auto-connect.
     for n in nuke.selectedNodes():
@@ -54,6 +61,13 @@ def create_node(
         target = nuke.toNode(insert_after)
         if target is None:
             raise ValueError(f"insert_after node '{insert_after}' not found")
+
+        # Auto-position: place below the target, pushing downstream nodes down.
+        if x is None and y is None:
+            x = target.xpos()
+            y = target.ypos() + _V_SPACING
+            _push_downstream_nodes(target, _V_SPACING)
+
         target.setSelected(True)
         node = nuke.createNode(class_name, inpanel=False)
     else:
@@ -61,6 +75,13 @@ def create_node(
 
     if name:
         node.setName(name)
+
+    # Auto-position below connect_to if no explicit coords given.
+    if x is None and y is None and connect_to is not None:
+        source = nuke.toNode(connect_to)
+        if source is not None:
+            x = source.xpos()
+            y = source.ypos() + _V_SPACING
 
     if x is not None:
         node.setXpos(x)
@@ -87,7 +108,11 @@ def create_node_tree(tree_definition: list[dict]) -> list[str]:
     """Batch-create a chain of nodes from a list of definitions.
 
     Each entry is a dict with keys matching ``NodeTreeEntry`` fields:
-    ``class_name``, ``name``, ``knobs``, ``connect_from``, ``input_index``.
+    ``class_name``, ``name``, ``knobs``, ``connect_from``, ``input_index``,
+    and optional ``x``, ``y`` for explicit positioning.
+
+    When x/y are omitted and connect_from is specified, nodes are
+    auto-positioned below their source to build a clean vertical chain.
 
     Returns the list of created node names.
     """
@@ -100,6 +125,8 @@ def create_node_tree(tree_definition: list[dict]) -> list[str]:
         knobs = entry.get("knobs", {})
         connect_from = entry.get("connect_from")
         input_index = entry.get("input_index", 0)
+        ex = entry.get("x")
+        ey = entry.get("y")
 
         # Deselect all before creating to avoid auto-wiring.
         for n in nuke.selectedNodes():
@@ -115,7 +142,23 @@ def create_node_tree(tree_definition: list[dict]) -> list[str]:
                 _set_knob(knob, v)
 
         if connect_from and connect_from in created:
-            node.setInput(input_index, created[connect_from])
+            source_node = created[connect_from]
+            node.setInput(input_index, source_node)
+
+            # Auto-position: B-pipe (input 0) goes directly below,
+            # A-pipe and other inputs offset to the side.
+            if ex is None and ey is None:
+                if input_index == 0:
+                    ex = source_node.xpos()
+                    ey = source_node.ypos() + _V_SPACING
+                else:
+                    ex = source_node.xpos() + _H_OFFSET
+                    ey = source_node.ypos()
+
+        if ex is not None:
+            node.setXpos(ex)
+        if ey is not None:
+            node.setYpos(ey)
 
         created[node.name()] = node
         result_names.append(node.name())
@@ -374,6 +417,26 @@ def _set_knob(knob, value: Any) -> None:
         knob.setValue(value)
     else:
         knob.setValue(str(value))
+
+
+def _push_downstream_nodes(node, offset_y: int) -> None:
+    """Push all downstream dependents of *node* down by *offset_y* pixels.
+
+    This makes room when inserting a new node inline without overlapping
+    existing nodes below.
+    """
+    visited: set[str] = set()
+
+    def _push(n):
+        if n is None or n.name() in visited:
+            return
+        visited.add(n.name())
+        for dep in n.dependent():
+            if dep.Class() not in ("Viewer", "BackdropNode"):
+                dep.setYpos(dep.ypos() + offset_y)
+                _push(dep)
+
+    _push(node)
 
 
 def _select_upstream(node) -> None:
