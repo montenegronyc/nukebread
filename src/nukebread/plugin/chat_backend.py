@@ -21,6 +21,7 @@ API_URL = "https://api.anthropic.com/v1/messages"
 MODEL = "claude-sonnet-4-6"
 MAX_TOKENS = 4096
 MAX_TOOL_ROUNDS = 10  # safety limit on tool-use loops
+RAG_API_URL = "http://127.0.0.1:9200"
 
 # Fallback system prompt if prompts/system_prompt.md can't be loaded.
 _DEFAULT_SYSTEM_PROMPT = """\
@@ -158,12 +159,75 @@ class ChatBackend:
             self._api_key = os.environ.get("ANTHROPIC_API_KEY", "")
         return self._api_key or None
 
+    def _get_rag_context(self, user_message: str) -> str:
+        """Query the RAG API for relevant comp patterns.
+
+        Returns a formatted context string, or empty string if unavailable.
+        Uses stdlib urllib — no pip packages needed inside Nuke.
+        """
+        try:
+            body = json.dumps({
+                "query": user_message,
+                "top_k": 3,
+            }).encode("utf-8")
+
+            req = urllib.request.Request(
+                f"{RAG_API_URL}/api/search",
+                data=body,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+
+            results = data.get("results", [])
+            if not results:
+                return ""
+
+            lines = [
+                "\n\n---\nRELEVANT COMP PATTERNS FROM YOUR LIBRARY:",
+            ]
+            for r in results:
+                sim = r.get("similarity", 0)
+                if sim < 0.3:
+                    continue
+                lines.append(
+                    f"\n### {r['name']} (id={r['pattern_id']}, "
+                    f"category={r['category']}, similarity={sim:.0%})"
+                )
+                lines.append(r.get("description", ""))
+                if r.get("avg_score") is not None:
+                    lines.append(f"Community rating: {r['avg_score']:.1f}/5")
+
+            if len(lines) <= 1:
+                return ""
+
+            lines.append(
+                "\nUse `rate_pattern` after applying a pattern to help the "
+                "library learn. Use `save_pattern` to save new techniques.\n---"
+            )
+            return "\n".join(lines)
+
+        except Exception:
+            # RAG is optional — silently fail
+            return ""
+
     def _call_api(self, api_key: str, tools: list[dict]) -> dict:
         """Make a single Claude Messages API call."""
+        # Augment system prompt with RAG context if available
+        system = self._system_prompt
+        if self._messages and self._messages[-1].get("role") == "user":
+            last_user = self._messages[-1].get("content", "")
+            if isinstance(last_user, str) and last_user:
+                rag_context = self._get_rag_context(last_user)
+                if rag_context:
+                    system = system + rag_context
+
         body = {
             "model": MODEL,
             "max_tokens": MAX_TOKENS,
-            "system": self._system_prompt,
+            "system": system,
             "messages": self._messages,
         }
         if tools:

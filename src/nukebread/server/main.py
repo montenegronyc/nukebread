@@ -15,6 +15,16 @@ logger = logging.getLogger(__name__)
 mcp = FastMCP(SERVER_NAME)
 nuke_client = NukeClient()
 
+# Lazy-init RAG store (shared across MCP tools)
+_rag_store = None
+
+def _get_rag_store():
+    global _rag_store
+    if _rag_store is None:
+        from nukebread.server.rag.store import CompPatternStore
+        _rag_store = CompPatternStore()
+    return _rag_store
+
 
 async def _call(command: str, params: dict | None = None) -> str:
     """Send a command to the Nuke bridge and return JSON. Wraps errors clearly."""
@@ -199,10 +209,220 @@ async def save_script_backup() -> str:
     return await _call("save_script_backup")
 
 
+# --- RAG: Comp Pattern Library ---
+
+@mcp.tool()
+async def search_patterns(
+    query: str,
+    top_k: int = 5,
+    category: str | None = None,
+    node_classes: list[str] | None = None,
+    include_graph: bool = False,
+) -> str:
+    """Search the comp pattern library for relevant techniques. Use this before building comps to find proven recipes.
+
+    Categories: color_correction, keying, merge_operations, transform_motion,
+    blur_defocus, 3d_compositing, camera_lens, matte_refinement, tracking, general_recipe.
+    """
+    store = _get_rag_store()
+    results = store.search(
+        query=query, top_k=top_k, category=category,
+        node_classes=node_classes, include_graph=include_graph,
+    )
+    return json.dumps([
+        {
+            "pattern_id": r.pattern_id,
+            "name": r.name,
+            "description": r.description,
+            "category": r.category,
+            "similarity": round(r.similarity, 4),
+            "node_count": r.node_count,
+            "avg_score": r.avg_score,
+            "graph_json": r.graph_json,
+        }
+        for r in results
+    ], default=str)
+
+
+@mcp.tool()
+async def save_pattern(
+    name: str,
+    description: str,
+    graph: dict,
+    category: str | None = None,
+    tags: list[str] | None = None,
+    use_cases: list[str] | None = None,
+    source_type: str = "manual",
+) -> str:
+    """Save the current comp (or part of it) as a reusable pattern in the library."""
+    store = _get_rag_store()
+    pattern_id = store.save_pattern(
+        name=name,
+        description=description,
+        graph_dict=graph,
+        category=category,
+        tags=tags,
+        use_cases=use_cases,
+        source_type=source_type,
+    )
+    return json.dumps({"pattern_id": pattern_id, "status": "saved"})
+
+
+@mcp.tool()
+async def rate_pattern(
+    pattern_id: int,
+    success: bool,
+    score: int | None = None,
+    notes: str | None = None,
+) -> str:
+    """Rate a pattern after using it. Helps the library learn which patterns work best."""
+    store = _get_rag_store()
+    store.rate_pattern(pattern_id, success, score, notes)
+    return json.dumps({"status": "rated", "pattern_id": pattern_id})
+
+
+@mcp.tool()
+async def get_pattern(pattern_id: int) -> str:
+    """Get full details of a pattern including its node graph."""
+    store = _get_rag_store()
+    pattern = store.get_pattern(pattern_id)
+    if pattern is None:
+        return json.dumps({"error": f"Pattern {pattern_id} not found"})
+    return json.dumps(pattern, default=str)
+
+
+@mcp.tool()
+async def list_patterns(category: str | None = None, limit: int = 20) -> str:
+    """List patterns in the library, optionally filtered by category."""
+    store = _get_rag_store()
+    patterns = store.list_patterns(category=category, limit=limit)
+    return json.dumps({"patterns": patterns, "count": len(patterns)}, default=str)
+
+
+@mcp.tool()
+async def pattern_stats() -> str:
+    """Return statistics about the comp pattern library."""
+    store = _get_rag_store()
+    return json.dumps(store.stats())
+
+
+@mcp.tool()
+async def import_nk_file(file_path: str) -> str:
+    """Import patterns from a .nk (Nuke script) file into the pattern library."""
+    from nukebread.server.rag.nk_parser import parse_nk_file
+
+    store = _get_rag_store()
+    patterns = parse_nk_file(file_path)
+    saved_ids = []
+    for pattern in patterns:
+        pid = store.save_pattern(
+            name=pattern["name"],
+            description=pattern["description"],
+            graph_dict=pattern["graph"],
+            category=pattern["category"],
+            source_script=file_path,
+            source_type="nk_import",
+        )
+        saved_ids.append(pid)
+
+    return json.dumps({
+        "status": "imported",
+        "patterns_saved": len(saved_ids),
+        "pattern_ids": saved_ids,
+    })
+
+
+@mcp.tool()
+async def import_nk_folder(folder_path: str) -> str:
+    """Bulk-import all .nk files from a folder into the pattern library.
+
+    Parses each .nk file with full connection extraction, splits into
+    connected sub-patterns, and stores them with embeddings for search.
+    Skips duplicates automatically.
+    """
+    from nukebread.server.rag.nk_parser import parse_nk_file
+    from pathlib import Path
+
+    folder = Path(folder_path)
+    if not folder.is_dir():
+        return json.dumps({"error": f"Directory not found: {folder_path}"})
+
+    nk_files = sorted(folder.glob("*.nk"))
+    if not nk_files:
+        return json.dumps({"error": f"No .nk files found in {folder_path}"})
+
+    store = _get_rag_store()
+    total_patterns = 0
+    total_skipped = 0
+    total_errors = 0
+    file_results = []
+
+    for nk_file in nk_files:
+        try:
+            patterns = parse_nk_file(str(nk_file))
+            if not patterns:
+                file_results.append({"file": nk_file.name, "patterns": 0, "status": "empty"})
+                continue
+
+            saved = 0
+            skipped = 0
+            for pattern in patterns:
+                try:
+                    store.save_pattern(
+                        name=pattern["name"],
+                        description=pattern["description"],
+                        graph_dict=pattern["graph"],
+                        category=pattern["category"],
+                        source_script=str(nk_file),
+                        source_type="nk_import",
+                    )
+                    saved += 1
+                    total_patterns += 1
+                except Exception as exc:
+                    err_str = str(exc).lower()
+                    if "unique" in err_str or "duplicate" in err_str:
+                        skipped += 1
+                        total_skipped += 1
+                    else:
+                        total_errors += 1
+
+            file_results.append({
+                "file": nk_file.name,
+                "patterns": saved,
+                "skipped": skipped,
+            })
+        except Exception as exc:
+            total_errors += 1
+            file_results.append({
+                "file": nk_file.name,
+                "patterns": 0,
+                "error": str(exc),
+            })
+
+    stats = store.stats()
+    return json.dumps({
+        "status": "complete",
+        "files_processed": len(nk_files),
+        "patterns_saved": total_patterns,
+        "duplicates_skipped": total_skipped,
+        "errors": total_errors,
+        "library_total": stats["total_patterns"],
+        "files": file_results,
+    })
+
+
 # ------------------------------------------------------------------
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
+
+    # Start RAG HTTP API on a daemon thread (for plugin-side access)
+    try:
+        from nukebread.server.rag.api import start_rag_api
+        start_rag_api(port=9200)
+    except Exception:
+        logger.warning("Could not start RAG API — pattern library unavailable via HTTP", exc_info=True)
+
     mcp.run(transport="stdio")
 
 if __name__ == "__main__":

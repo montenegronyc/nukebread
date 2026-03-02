@@ -286,4 +286,234 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["code"],
         },
     },
+    "create_node_tree": {
+        "name": "create_node_tree",
+        "description": "Batch-create a chain of connected nodes in one call. PREFERRED over create_node for multi-node setups. Each entry: class_name, name, knobs, connect_from (name of earlier node in this list), input_index (0=B-pipe, 1=A-pipe).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "tree": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "class_name": {"type": "string"},
+                            "name": {"type": "string"},
+                            "knobs": {"type": "object", "additionalProperties": True},
+                            "connect_from": {"type": "string"},
+                            "input_index": {"type": "integer"},
+                            "x": {"type": "integer"},
+                            "y": {"type": "integer"},
+                        },
+                        "required": ["class_name"],
+                    },
+                },
+            },
+            "required": ["tree"],
+        },
+    },
+    "disconnect_node": {
+        "name": "disconnect_node",
+        "description": "Disconnect a node's input. If input_index is omitted, all inputs are disconnected.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "node_name": {"type": "string"},
+                "input_index": {"type": "integer", "description": "Specific input to disconnect (omit for all)."},
+            },
+            "required": ["node_name"],
+        },
+    },
+    "set_animation": {
+        "name": "set_animation",
+        "description": "Set animation keyframes on a knob. Each keyframe: {frame, value, interpolation?}.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "node_name": {"type": "string"},
+                "knob_name": {"type": "string"},
+                "keyframes": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "frame": {"type": "integer"},
+                            "value": {"type": "number"},
+                            "interpolation": {"type": "string", "enum": ["smooth", "linear", "constant"]},
+                        },
+                        "required": ["frame", "value"],
+                    },
+                },
+            },
+            "required": ["node_name", "knob_name", "keyframes"],
+        },
+    },
+    "duplicate_branch": {
+        "name": "duplicate_branch",
+        "description": "Duplicate a node and everything upstream of it.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "node_name": {"type": "string"},
+            },
+            "required": ["node_name"],
+        },
+    },
+    "replace_node": {
+        "name": "replace_node",
+        "description": "Swap a node's class while preserving its connections.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "old_node": {"type": "string", "description": "Node to replace."},
+                "new_class": {"type": "string", "description": "New node class."},
+                "preserve_connections": {"type": "boolean", "description": "Keep wiring (default true)."},
+            },
+            "required": ["old_node", "new_class"],
+        },
+    },
+    "grab_comparison": {
+        "name": "grab_comparison",
+        "description": "Render a before/after comparison of two nodes. Mode: wipe, diff, or side_by_side.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "node_a": {"type": "string"},
+                "node_b": {"type": "string"},
+                "frame": {"type": "integer"},
+                "mode": {"type": "string", "enum": ["wipe", "diff", "side_by_side"]},
+            },
+            "required": ["node_a", "node_b"],
+        },
+    },
+    "begin_undo_group": {
+        "name": "begin_undo_group",
+        "description": "Start a named undo group. All subsequent operations become a single undo step.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Name for the undo group."},
+            },
+            "required": ["name"],
+        },
+    },
+    "end_undo_group": {
+        "name": "end_undo_group",
+        "description": "End the current undo group.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    "undo": {
+        "name": "undo",
+        "description": "Undo the last action(s).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "steps": {"type": "integer", "description": "Number of undo steps (default 1)."},
+            },
+            "required": [],
+        },
+    },
+    "get_layer_channels": {
+        "name": "get_layer_channels",
+        "description": "List all available channels at a given node.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "node_name": {"type": "string"},
+            },
+            "required": ["node_name"],
+        },
+    },
+    "get_viewer_state": {
+        "name": "get_viewer_state",
+        "description": "Return the current viewer state: active node, channels, exposure, gain.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    "get_project_color_pipeline": {
+        "name": "get_project_color_pipeline",
+        "description": "Return the OCIO config path, working colorspace, and display/view transform.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    "save_script_backup": {
+        "name": "save_script_backup",
+        "description": "Save a timestamped backup of the current script.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    "grab_roi": {
+        "name": "grab_roi",
+        "description": "Grab a rectangular region of a frame as a base64 image.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "node_name": {"type": "string"},
+                "x": {"type": "integer"},
+                "y": {"type": "integer"},
+                "width": {"type": "integer"},
+                "height": {"type": "integer"},
+                "frame": {"type": "integer"},
+            },
+            "required": ["node_name", "x", "y", "width", "height"],
+        },
+    },
+    "grab_frame_range": {
+        "name": "grab_frame_range",
+        "description": "Grab multiple frames for temporal analysis.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "node_name": {"type": "string"},
+                "start": {"type": "integer"},
+                "end": {"type": "integer"},
+                "step": {"type": "integer"},
+            },
+            "required": ["node_name", "start", "end"],
+        },
+    },
+
+    # --- RAG: Comp Pattern Library ---
+
+    "save_pattern": {
+        "name": "save_pattern",
+        "description": "Save the current comp as a reusable pattern in the library. Reads the graph and sends it to the pattern store.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Descriptive name for the pattern."},
+                "description": {"type": "string", "description": "What this comp does and when to use it."},
+                "category": {"type": "string", "description": "Optional category override."},
+                "tags": {"type": "array", "items": {"type": "string"}, "description": "Optional tags."},
+            },
+            "required": ["name", "description"],
+        },
+    },
+    "rate_pattern": {
+        "name": "rate_pattern",
+        "description": "Rate a pattern after using it. Helps the library learn which patterns work best.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "pattern_id": {"type": "integer", "description": "The pattern ID to rate."},
+                "success": {"type": "boolean", "description": "Whether the pattern worked well."},
+                "score": {"type": "integer", "description": "Rating 1-5 (optional)."},
+                "notes": {"type": "string", "description": "Optional notes."},
+            },
+            "required": ["pattern_id", "success"],
+        },
+    },
 }

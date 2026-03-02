@@ -1,0 +1,22 @@
+services:
+  db:
+    # RuVector is a pgvector-compatible PostgreSQL extension with self-learning HNSW.
+    # Falls back to pgvector/pgvector:pg16 if RuVector image unavailable.
+    image: pgvector/pgvector:pg16
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_DB: nukebread
+      POSTGRES_USER: nukebread
+      POSTGRES_PASSWORD: nukebread
+    volumes:
+      - nukebread_pgdata:/var/lib/postgresql/data
+      - ./src/nukebread/server/rag/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nukebread"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  nukebread_pgdata:

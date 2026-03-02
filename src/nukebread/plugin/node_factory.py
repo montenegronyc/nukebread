@@ -16,6 +16,27 @@ _V_SPACING = 50
 # Horizontal offset for side-branch inputs (A-pipe, masks).
 _H_OFFSET = 200
 
+# LLM hallucination corrections — common wrong class names → actual Nuke names.
+_CLASS_ALIASES: dict[str, str] = {
+    "Merge": "Merge2",
+    "GaussianBlur": "Blur",
+    "Premultiply": "Premult",
+    "Unpremultiply": "Unpremult",
+    "Output": "Write",
+    "Input": "Read",
+    "ColorCorrection": "ColorCorrect",
+    "ColorCorrection2": "ColorCorrect",
+    "Despill": "HueCorrect",
+    "MotionBlur": "MotionBlur2D",
+    "LensDistort": "LensDistortion",
+    "Crop": "Crop",
+}
+
+
+def _resolve_class(class_name: str) -> str:
+    """Resolve LLM-hallucinated class names to real Nuke classes."""
+    return _CLASS_ALIASES.get(class_name, class_name)
+
 
 # ------------------------------------------------------------------
 # Node creation
@@ -53,6 +74,8 @@ def create_node(
         *insert_after* is given, the node is auto-positioned directly
         below the reference node to maintain a clean vertical B-pipe.
     """
+    class_name = _resolve_class(class_name)
+
     # Deselect everything first so nuke.createNode doesn't auto-connect.
     for n in nuke.selectedNodes():
         n.setSelected(False)
@@ -120,7 +143,7 @@ def create_node_tree(tree_definition: list[dict]) -> list[str]:
     result_names: list[str] = []
 
     for entry in tree_definition:
-        cls = entry["class_name"]
+        cls = _resolve_class(entry["class_name"])
         desired_name = entry.get("name", "")
         knobs = entry.get("knobs", {})
         connect_from = entry.get("connect_from")
@@ -141,8 +164,15 @@ def create_node_tree(tree_definition: list[dict]) -> list[str]:
             if knob is not None:
                 _set_knob(knob, v)
 
-        if connect_from and connect_from in created:
-            source_node = created[connect_from]
+        # Resolve source node: check batch-created nodes first, then existing graph.
+        source_node = None
+        if connect_from:
+            if connect_from in created:
+                source_node = created[connect_from]
+            else:
+                source_node = nuke.toNode(connect_from)
+
+        if source_node is not None:
             node.setInput(input_index, source_node)
 
             # Auto-position: B-pipe (input 0) goes directly below,
@@ -362,6 +392,8 @@ def replace_node(
     When *preserve_connections* is True, input and output wiring is
     transferred to the replacement node.
     """
+    new_class = _resolve_class(new_class)
+
     old_node = nuke.toNode(old_name)
     if old_node is None:
         raise ValueError(f"Node '{old_name}' not found")

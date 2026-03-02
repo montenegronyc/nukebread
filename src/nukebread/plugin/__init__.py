@@ -98,7 +98,8 @@ def _build_registry():
     ), TOOL_SCHEMAS.get("create_node"))
 
     reg.register("create_node_tree",
-                 lambda params: node_factory.create_node_tree(params["tree"]))
+                 lambda params: node_factory.create_node_tree(params["tree"]),
+                 TOOL_SCHEMAS.get("create_node_tree"))
 
     reg.register("connect_nodes", lambda params: node_factory.connect(
         params["from_node"], params["to_node"], params.get("input_index", 0),
@@ -106,7 +107,7 @@ def _build_registry():
 
     reg.register("disconnect_node", lambda params: node_factory.disconnect(
         params["node_name"], params.get("input_index"),
-    ))
+    ), TOOL_SCHEMAS.get("disconnect_node"))
 
     reg.register("delete_nodes",
                  lambda params: node_factory.delete_nodes(params["node_names"]),
@@ -122,14 +123,15 @@ def _build_registry():
 
     reg.register("set_animation", lambda params: node_factory.set_animation_keys(
         params["node_name"], params["knob_name"], params["keyframes"],
-    ))
+    ), TOOL_SCHEMAS.get("set_animation"))
 
     reg.register("duplicate_branch",
-                 lambda params: node_factory.duplicate_branch(params["node_name"]))
+                 lambda params: node_factory.duplicate_branch(params["node_name"]),
+                 TOOL_SCHEMAS.get("duplicate_branch"))
 
     reg.register("replace_node", lambda params: node_factory.replace_node(
         params["old_node"], params["new_class"], params.get("preserve_connections", True),
-    ))
+    ), TOOL_SCHEMAS.get("replace_node"))
 
     # --- Vision commands ---
     reg.register("grab_frame", lambda params: frame_grabber.grab_frame(
@@ -140,18 +142,18 @@ def _build_registry():
     reg.register("grab_roi", lambda params: frame_grabber.grab_roi(
         params["node_name"], params["x"], params["y"],
         params["width"], params["height"], params.get("frame"),
-    ).to_dict())
+    ).to_dict(), TOOL_SCHEMAS.get("grab_roi"))
 
     reg.register("grab_comparison", lambda params: frame_grabber.grab_comparison(
         params["node_a"], params["node_b"],
         frame=params.get("frame"), mode=params.get("mode", "wipe"),
-    ).to_dict())
+    ).to_dict(), TOOL_SCHEMAS.get("grab_comparison"))
 
     reg.register("grab_frame_range", lambda params: [
         r.to_dict() for r in frame_grabber.grab_frame_range(
             params["node_name"], params["start"], params["end"], params.get("step", 1),
         )
-    ])
+    ], TOOL_SCHEMAS.get("grab_frame_range"))
 
     reg.register("read_pixel", lambda params: frame_grabber.read_pixel(
         params["node_name"], params["x"], params["y"], params.get("frame"),
@@ -161,21 +163,36 @@ def _build_registry():
     reg.register("get_script_info", lambda params: _get_script_info(),
                  TOOL_SCHEMAS.get("get_script_info"))
     reg.register("get_layer_channels",
-                 lambda params: _get_layer_channels(params["node_name"]))
+                 lambda params: _get_layer_channels(params["node_name"]),
+                 TOOL_SCHEMAS.get("get_layer_channels"))
     reg.register("list_read_nodes", lambda params: _list_read_nodes(),
                  TOOL_SCHEMAS.get("list_read_nodes"))
-    reg.register("get_viewer_state", lambda params: _get_viewer_state())
-    reg.register("get_project_color_pipeline", lambda params: _get_color_pipeline())
+    reg.register("get_viewer_state", lambda params: _get_viewer_state(),
+                 TOOL_SCHEMAS.get("get_viewer_state"))
+    reg.register("get_project_color_pipeline", lambda params: _get_color_pipeline(),
+                 TOOL_SCHEMAS.get("get_project_color_pipeline"))
 
     # --- Execution & safety commands ---
     reg.register("execute_python",
                  lambda params: _execute_python(params["code"]),
                  TOOL_SCHEMAS.get("execute_python"))
-    reg.register("undo", lambda params: _undo(params.get("steps", 1)))
+    reg.register("undo", lambda params: _undo(params.get("steps", 1)),
+                 TOOL_SCHEMAS.get("undo"))
     reg.register("begin_undo_group",
-                 lambda params: _begin_undo_group(params["name"]))
-    reg.register("end_undo_group", lambda params: _end_undo_group())
-    reg.register("save_script_backup", lambda params: _save_script_backup())
+                 lambda params: _begin_undo_group(params["name"]),
+                 TOOL_SCHEMAS.get("begin_undo_group"))
+    reg.register("end_undo_group", lambda params: _end_undo_group(),
+                 TOOL_SCHEMAS.get("end_undo_group"))
+    reg.register("save_script_backup", lambda params: _save_script_backup(),
+                 TOOL_SCHEMAS.get("save_script_backup"))
+
+    # --- RAG: Comp Pattern Library ---
+    reg.register("save_pattern",
+                 lambda params: _save_pattern_to_rag(params),
+                 TOOL_SCHEMAS.get("save_pattern"))
+    reg.register("rate_pattern",
+                 lambda params: _rate_pattern_in_rag(params),
+                 TOOL_SCHEMAS.get("rate_pattern"))
 
     return reg
 
@@ -329,3 +346,66 @@ def _save_script_backup() -> str:
     nuke.scriptSaveAs(backup_path)
     nuke.scriptOpen(script_path)
     return f"Backup saved to {backup_path}"
+
+
+# ---------------------------------------------------------------------------
+# RAG helpers — POST to RAG HTTP API (stdlib only)
+# ---------------------------------------------------------------------------
+
+_RAG_URL = "http://127.0.0.1:9200"
+
+
+def _save_pattern_to_rag(params: dict) -> dict:
+    """Read the current graph and save it as a pattern via the RAG API."""
+    import json
+    import urllib.request
+    import urllib.error
+    from nukebread.plugin import serializer
+
+    graph = serializer.serialize_graph(include_viewers=False).to_dict()
+
+    body = json.dumps({
+        "name": params["name"],
+        "description": params["description"],
+        "graph": graph,
+        "category": params.get("category"),
+        "tags": params.get("tags"),
+        "source_type": "manual",
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        f"{_RAG_URL}/api/save",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except Exception as exc:
+        return {"error": f"RAG API unavailable: {exc}"}
+
+
+def _rate_pattern_in_rag(params: dict) -> dict:
+    """Rate a pattern via the RAG API."""
+    import json
+    import urllib.request
+
+    body = json.dumps({
+        "pattern_id": params["pattern_id"],
+        "success": params["success"],
+        "score": params.get("score"),
+        "notes": params.get("notes"),
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        f"{_RAG_URL}/api/rate",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except Exception as exc:
+        return {"error": f"RAG API unavailable: {exc}"}
