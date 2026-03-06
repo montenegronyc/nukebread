@@ -254,11 +254,35 @@ class _RAGHandler(BaseHTTPRequestHandler):
         logger.debug(format, *args)
 
 
+def _find_free_port(host: str, default: int, max_attempts: int = 20) -> int:
+    """Return default port if free, otherwise scan upward."""
+    import socket
+
+    for offset in range(max_attempts):
+        candidate = default + offset
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind((host, candidate))
+                if offset > 0:
+                    logger.info("Port %d in use, using %d instead", default, candidate)
+                return candidate
+            except OSError:
+                continue
+    # Last resort: let the OS pick
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind((host, 0))
+        port = s.getsockname()[1]
+        logger.info("No free port in range %d-%d, OS assigned %d", default, default + max_attempts - 1, port)
+        return port
+
+
 def start_rag_api(port: int = 9200) -> HTTPServer | None:
     """Start the RAG HTTP API on a daemon thread.
 
     Returns the server instance, or None if the port is unavailable.
     """
+    port = _find_free_port("127.0.0.1", port)
+
     try:
         server = HTTPServer(("127.0.0.1", port), _RAGHandler)
     except OSError as exc:
